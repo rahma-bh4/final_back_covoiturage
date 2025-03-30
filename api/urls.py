@@ -15,4 +15,6 @@ urlpatterns = [
     path('user-trajets/', views.user_trajets, name='user-trajets'),
     path('create-trajet/', views.CreateTrajetView.as_view(), name='create-trajet'),
     path('delete-trajet/<int:pk>/', views.DeleteTrajetView.as_view(), name='delete-trajet'),
+    path('trajet/update/<int:pk>/', views.UpdateTrajetView.as_view(), name='update_trajet'),
+
 ]

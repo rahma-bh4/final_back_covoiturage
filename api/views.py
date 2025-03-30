@@ -257,3 +257,20 @@ class DeleteTrajetView(APIView):
                 {"error": "Trajet non trouvé"}, 
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+
+class UpdateTrajetView(APIView):
+    def put(self, request, pk):
+        """
+        API pour mettre à jour un trajet existant.
+        """
+        try:
+            trajet = Trajet.objects.get(pk=pk)
+        except Trajet.DoesNotExist:
+            return Response({"error": "Trajet non trouvé"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = TrajetSerializer(trajet, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
