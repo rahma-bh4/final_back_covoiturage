@@ -13,4 +13,5 @@ urlpatterns = [
    # path('check-driver-status/<str:user_id>/', views.check_driver_status, name='check-driver-status'),
     path('available-trajets/', views.available_trajets, name='available-trajets'),
     path('user-trajets/', views.user_trajets, name='user-trajets'),
+    path('create-trajet/', views.CreateTrajetView.as_view(), name='create-trajet'),
 ]

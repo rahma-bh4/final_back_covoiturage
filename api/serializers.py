@@ -28,3 +28,12 @@ class TrajetSerializer(serializers.ModelSerializer):
             'departure', 'arrival', 'departure_date', 'arrival_date', 
             'nb_places', 'created_at', 'status'
         ]
+    
+    # If your model field is actually named differently, add this override
+    def create(self, validated_data):
+        # Ensure we have the necessary data
+        if 'owner_id' not in validated_data or 'voiture_id' not in validated_data:
+            raise serializers.ValidationError("Missing required fields: owner_id and voiture_id are required")
+        
+        # Create and return the trajet
+        return Trajet.objects.create(**validated_data)
