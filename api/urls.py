@@ -14,4 +14,5 @@ urlpatterns = [
     path('available-trajets/', views.available_trajets, name='available-trajets'),
     path('user-trajets/', views.user_trajets, name='user-trajets'),
     path('create-trajet/', views.CreateTrajetView.as_view(), name='create-trajet'),
+    path('delete-trajet/<int:pk>/', views.DeleteTrajetView.as_view(), name='delete-trajet'),
 ]

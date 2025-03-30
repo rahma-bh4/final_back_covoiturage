@@ -183,56 +183,77 @@ def user_trajets(request):
     ).order_by('status_order', 'departure_date')
     
     serializer = TrajetSerializer(trajets, many=True)
-    return Response(serializer.data)
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from .models import Driver, Trajet
-from .serializers import TrajetSerializer
-from .authentication import SupabaseJWTAuthentication
+
 
 class CreateTrajetView(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [SupabaseJWTAuthentication]
     
     def post(self, request):
-        """
-        API pour ajouter un trajet à la base de données.
-        L'utilisateur doit être enregistré comme chauffeur.
-        Le véhicule du chauffeur sera automatiquement associé au trajet.
-        """
         user_id = request.user.id
         
-        # Check if the user is a driver
         try:
             driver = Driver.objects.get(user_id=user_id)
         except Driver.DoesNotExist:
             return Response(
-                {"error": "Vous devez être enregistré comme chauffeur pour créer un trajet"},
+                {"error": "Vous devez être enregistré comme chauffeur"},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Add driver info and car info to the request data
+        # Create a new dictionary with the request data
         data = request.data.copy()
-        data['owner_id'] = driver.id
-        data['voiture_id'] = driver.voiture.id_voiture  # Always use the driver's car
+        
+        # Use the exact field names from your model
+        data['owner_id'] = driver.id  # This matches your model field 'owner_id'
+        data['voiture'] = driver.voiture.id_voiture  # This matches your model field 'voiture'
         
         serializer = TrajetSerializer(data=data)
+        
         if serializer.is_valid():
             trajet = serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            print(f"Serializer errors: {serializer.errors}")
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class DeleteTrajetView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [SupabaseJWTAuthentication]
+    
     def delete(self, request, pk):
         """
         API pour supprimer un trajet par son ID.
+        Seul le chauffeur qui a créé ce trajet peut le supprimer.
         """
+        user_id = request.user.id
+        
+        try:
+            # Get the driver record for the authenticated user
+            driver = Driver.objects.get(user_id=user_id)
+        except Driver.DoesNotExist:
+            return Response(
+                {"error": "Vous n'êtes pas enregistré comme chauffeur"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
         try:
             trajet = Trajet.objects.get(pk=pk)
+            
+            # Check if this trajet belongs to the authenticated driver
+            if trajet.owner_id.id != driver.id:
+                return Response(
+                    {"error": "Vous n'êtes pas autorisé à supprimer ce trajet"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+                
             trajet.delete()
-            return Response({"message": "Trajet supprimé avec succès"}, status=status.HTTP_204_NO_CONTENT)
+            return Response(
+                {"message": "Trajet supprimé avec succès"}, 
+                status=status.HTTP_204_NO_CONTENT
+            )
+            
         except Trajet.DoesNotExist:
-            return Response({"error": "Trajet non trouvé"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Trajet non trouvé"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
