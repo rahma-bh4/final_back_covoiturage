@@ -7,7 +7,7 @@ from .models import Trajet, Voiture, Driver
 from .serializers import TrajetSerializer, VoitureSerializer, DriverSerializer
 from rest_framework.permissions import IsAuthenticated
 from .authentication import SupabaseJWTAuthentication
-from .supabase_client import update_user_role
+
 from django.utils import timezone
 from rest_framework.views import APIView
 class VoitureViewSet(viewsets.ModelViewSet):

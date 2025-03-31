@@ -48,7 +48,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    #'api.middleware.ClerkAuthenticationMiddleware',
+   
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -93,7 +93,7 @@ DATABASES = {
 SECRET_KEY = 'django-insecure-=-c&pp3i!q8l4o0gwm1rp&+%im)g=(&96j=r0@0%*r6xd%*&1='
 SUPABASE_URL= 'https://zxozkxeqvikvieodhwmg.supabase.co'
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp4b3preGVxdmlrdmllb2Rod21nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDA5MTE4NzIsImV4cCI6MjA1NjQ4Nzg3Mn0.yCgTkesQ9ad5y5FpsEpr7rYYa4UeM6sUz1jK0-Q8jwM'
-CLERK_SECRET_KEY = 'sk_test_ZwEgLiPUjkw43KGwuNzxATzBrKj89HG5TKVbKO5lSt'
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
@@ -136,7 +136,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CLERK_DOMAIN = 'fun-grub-51.clerk.accounts.dev'
+
 
 
 CORS_ALLOW_ALL_ORIGINS = True
@@ -159,5 +159,5 @@ CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
-    "https://ton-site-en-production.com",
+    #"https://ton-site-en-production.com",
 ]
