@@ -145,7 +145,7 @@ def user_trajets(request):
     """
     user_id = request.user.id
     current_time = timezone.now()
-
+    
     # First check if the user is a driver
     try:
         driver = Driver.objects.get(user_id=user_id)
@@ -154,7 +154,7 @@ def user_trajets(request):
             {"error": "You are not registered as a driver"},
             status=status.HTTP_403_FORBIDDEN
         )
-
+    
     # Update trajets that should be 'ongoing' (between departure and arrival times)
     Trajet.objects.filter(
         owner_id=driver,
@@ -162,36 +162,38 @@ def user_trajets(request):
         departure_date__lt=current_time,
         arrival_date__gt=current_time
     ).update(status='ongoing')
-
+    
     # Update trajets that should be 'completed' (past arrival time)
     Trajet.objects.filter(
         owner_id=driver,
         status__in=['active', 'ongoing'],
         arrival_date__lt=current_time
     ).update(status='completed')
-
+    
     # Get all trajets owned by this driver
     trajets = Trajet.objects.filter(owner_id=driver)
-
+    
     # Apply status filter if provided
     status_filter = request.query_params.get('status')
     if status_filter:
         trajets = trajets.filter(status=status_filter)
-
+    
     # Order by status ('active' first, then 'ongoing', then others)
     # Then by departure date (soonest first)
     trajets = trajets.extra(
         select={'status_order': """
             CASE 
-                WHEN status = 'active' THEN 0 
+                WHEN status = 'active' THEN 0
                 WHEN status = 'ongoing' THEN 1
                 ELSE 2
             END
         """}
     ).order_by('status_order', 'departure_date')
-
+    
     serializer = TrajetSerializer(trajets, many=True)
-
+    
+    # Add this return statement
+    return Response(serializer.data)
 
 class CreateTrajetView(APIView):
     permission_classes = [IsAuthenticated]
