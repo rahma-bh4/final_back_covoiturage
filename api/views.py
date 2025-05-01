@@ -7,10 +7,14 @@ from .models import Trajet, Voiture, Driver
 from .serializers import TrajetSerializer, VoitureSerializer, DriverSerializer
 from rest_framework.permissions import IsAuthenticated
 from .authentication import SupabaseJWTAuthentication
+from django.utils import timezone
 
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
 from django.utils import timezone
 from rest_framework.views import APIView
-
+from .serializers import TrajetDetailSerializer
 
 class VoitureViewSet(viewsets.ModelViewSet):
     queryset = Voiture.objects.all()
@@ -101,38 +105,36 @@ def available_trajets(request):
     This endpoint does not require authentication
     """
     current_time = timezone.now()
-
+    
     # First, update any active trajets with departure time in the past to 'completed'
     Trajet.objects.filter(
         status='active',
         departure_date__lt=current_time
     ).update(status='completed')
-
+    
     # Filter for active trajets with departure time in the future and available seats
     trajets = Trajet.objects.filter(
         status='active',
         departure_date__gt=current_time,
         nb_places__gt=0
     ).order_by('departure_date')
-
+    
     # Apply filters from query params
     departure = request.query_params.get('departure')
     arrival = request.query_params.get('arrival')
     date = request.query_params.get('date')
-
+    
     if departure:
         trajets = trajets.filter(departure__icontains=departure)
-
+    
     if arrival:
         trajets = trajets.filter(arrival__icontains=arrival)
-
+    
     if date:
         trajets = trajets.filter(departure_date__date=date)
-
+    
     serializer = TrajetSerializer(trajets, many=True)
     return Response(serializer.data)
-# views.py
-
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -145,7 +147,7 @@ def user_trajets(request):
     """
     user_id = request.user.id
     current_time = timezone.now()
-    
+        
     # First check if the user is a driver
     try:
         driver = Driver.objects.get(user_id=user_id)
@@ -154,7 +156,7 @@ def user_trajets(request):
             {"error": "You are not registered as a driver"},
             status=status.HTTP_403_FORBIDDEN
         )
-    
+        
     # Update trajets that should be 'ongoing' (between departure and arrival times)
     Trajet.objects.filter(
         owner_id=driver,
@@ -162,22 +164,22 @@ def user_trajets(request):
         departure_date__lt=current_time,
         arrival_date__gt=current_time
     ).update(status='ongoing')
-    
+        
     # Update trajets that should be 'completed' (past arrival time)
     Trajet.objects.filter(
         owner_id=driver,
         status__in=['active', 'ongoing'],
         arrival_date__lt=current_time
     ).update(status='completed')
-    
+        
     # Get all trajets owned by this driver
     trajets = Trajet.objects.filter(owner_id=driver)
-    
+        
     # Apply status filter if provided
     status_filter = request.query_params.get('status')
     if status_filter:
         trajets = trajets.filter(status=status_filter)
-    
+        
     # Order by status ('active' first, then 'ongoing', then others)
     # Then by departure date (soonest first)
     trajets = trajets.extra(
@@ -189,11 +191,11 @@ def user_trajets(request):
             END
         """}
     ).order_by('status_order', 'departure_date')
-    
+        
     serializer = TrajetSerializer(trajets, many=True)
-    
-    # Add this return statement
     return Response(serializer.data)
+
+
 
 class CreateTrajetView(APIView):
     permission_classes = [IsAuthenticated]
@@ -299,3 +301,21 @@ class UpdateTrajetView(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+@api_view(['GET'])
+@permission_classes([AllowAny])  # Or use IsAuthenticated if you want to restrict access
+def trajet_detail(request, trajet_id):
+    """
+    Get detailed information about a specific trip, including car and owner details
+    """
+    try:
+        trajet = Trajet.objects.get(id=trajet_id)
+    except Trajet.DoesNotExist:
+        return Response(
+            {"error": "Trip not found"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    serializer = TrajetDetailSerializer(trajet)
+    return Response(serializer.data)
