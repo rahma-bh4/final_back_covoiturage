@@ -119,3 +119,19 @@ class ReservationSerializer(serializers.ModelSerializer):
             'payment_method', 'payment', 'status', 'created_at', 'notes'
         ]
         read_only_fields = ['id', 'passenger_id', 'created_at']
+    
+
+class ReservationHistorySerializer(serializers.ModelSerializer):
+    trajet_ville_depart = serializers.CharField(source='trajet.depart', read_only=True)
+    trajet_ville_arrivee = serializers.CharField(source='trajet.arrivee', read_only=True)
+    trajet_date = serializers.DateTimeField(source='trajet.date_depart', read_only=True)
+    payment_status = serializers.CharField(source='payment.status', read_only=True)
+
+    class Meta:
+        model = Reservation
+        fields = [
+            'id', 'nom', 'prenom', 'tel', 'status',
+            'payment_method', 'payment_status',
+            'trajet_ville_depart', 'trajet_ville_arrivee', 'trajet_date',
+            'created_at'
+        ]

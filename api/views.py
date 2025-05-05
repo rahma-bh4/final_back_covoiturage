@@ -5,11 +5,11 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny
 from .models import DriverStripeAccount, Payment, Trajet, Voiture, Driver
-from .serializers import TrajetSerializer, VoitureSerializer, DriverSerializer
+from .serializers import ReservationHistorySerializer, TrajetSerializer, VoitureSerializer, DriverSerializer
 from rest_framework.permissions import IsAuthenticated
 from .authentication import SupabaseJWTAuthentication
 from django.utils import timezone
-
+from rest_framework import generics, permissions
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
@@ -868,3 +868,10 @@ def creer_reservation(request):
         return JsonResponse({
             'error': f'Erreur lors de la création de la réservation: {str(e)}'
         }, status=500)
+class ReservationHistoryView(generics.ListAPIView):
+    serializer_class = ReservationHistorySerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Assuming passenger_id is saved as the Supabase user ID (string) in Reservation model
+        return Reservation.objects.filter(passenger_id=self.request.user.id).order_by('-created_at')
