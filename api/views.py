@@ -761,3 +761,110 @@ def handle_account_update(account):
 #             {"error": str(e)},
 #             status=status.HTTP_400_BAD_REQUEST
 #         )
+
+
+
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+from django.shortcuts import get_object_or_404
+import json
+from .models import Trajet, Payment, Reservation
+
+@csrf_exempt
+@require_POST
+def creer_reservation(request):
+    try:
+        # Parse JSON data from request body
+        data = json.loads(request.body)
+        
+        # Validate required fields
+        required_fields = ['trajet_id', 'passenger_id', 'nom', 'prenom', 'tel']
+        for field in required_fields:
+            if not data.get(field):
+                return JsonResponse({
+                    'error': f'Le champ {field} est requis'
+                }, status=400)
+
+        # Get and validate trajet
+        trajet = get_object_or_404(Trajet, id=data.get('trajet_id'))
+
+        # Check if there are available seats
+        if trajet.nb_places <= 0:
+            return JsonResponse({
+                'error': 'Aucune place disponible pour ce trajet'
+            }, status=400)
+
+        # Get optional fields with defaults
+        adresse = data.get('adresse', '')
+        notes = data.get('notes', '')
+        payment_method = data.get('payment_method', 'cash')
+
+        # Validate payment method
+        if payment_method not in ['cash', 'online']:
+            return JsonResponse({
+                'error': 'Méthode de paiement invalide'
+            }, status=400)
+
+        # Handle payment if provided
+        payment = None
+        if payment_method == 'online':
+            payment_id = data.get('payment_id')
+            if not payment_id:
+                return JsonResponse({
+                    'error': 'ID de paiement requis pour le paiement en ligne'
+                }, status=400)
+            try:
+                payment = Payment.objects.get(id=payment_id)
+            except Payment.DoesNotExist:
+                return JsonResponse({
+                    'error': 'Paiement non trouvé'
+                }, status=404)
+
+        # Check if reservation already exists for this user and trajet
+        if Reservation.objects.filter(trajet=trajet, passenger_id=data.get('passenger_id')).exists():
+            return JsonResponse({
+                'error': 'Vous avez déjà une réservation pour ce trajet'
+            }, status=400)
+
+        # Create reservation
+        reservation = Reservation.objects.create(
+            trajet=trajet,
+            passenger_id=data.get('passenger_id'),
+            nom=data.get('nom'),
+            prenom=data.get('prenom'),
+            tel=data.get('tel'),
+            adresse=adresse,
+            payment_method=payment_method,
+            payment=payment,
+            notes=notes,
+            status='pending'
+        )
+
+        # Update available seats
+        trajet.nb_places -= 1
+        trajet.save()
+
+        return JsonResponse({
+            'message': 'Réservation créée avec succès',
+            'reservation_id': str(reservation.id),
+            'reservation': {
+                'id': str(reservation.id),
+                'trajet_id': trajet.id,
+                'passenger_id': reservation.passenger_id,
+                'nom': reservation.nom,
+                'prenom': reservation.prenom,
+                'status': reservation.status,
+                'created_at': reservation.created_at.isoformat()
+            }
+        }, status=201)
+
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'error': 'Format JSON invalide'
+        }, status=400)
+    except Exception as e:
+        return JsonResponse({
+            'error': f'Erreur lors de la création de la réservation: {str(e)}'
+        }, status=500)
