@@ -9,13 +9,20 @@ https://docs.djangoproject.com/en/5.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
+import os
 from decouple import config
 from pathlib import Path
 import dj_database_url
+from dotenv import load_dotenv
+load_dotenv()
+
+STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY')
+STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
+# Supabase settings
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
@@ -151,7 +158,6 @@ REST_FRAMEWORK = {
     ],
 }
 
-# Supabase settings
 SUPABASE_URL = 'https://zxozkxeqvikvieodhwmg.supabase.co'  # Without https://
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp4b3preGVxdmlrdmllb2Rod21nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDA5MTE4NzIsImV4cCI6MjA1NjQ4Nzg3Mn0.yCgTkesQ9ad5y5FpsEpr7rYYa4UeM6sUz1jK0-Q8jwM'
 SUPABASE_JWT_SECRET = 'Do6EAsW/lW/9+skibaFm2bcBTxEah6hBXSBq1/dRKMNx7rM3fE3xmELu/30+c9JtS1V0X/JHNkzBPk/JA3tOKQ=='
