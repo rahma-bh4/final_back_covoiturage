@@ -1,6 +1,6 @@
 # serializers.py
 from rest_framework import serializers
-from .models import Trajet, Voiture, Driver
+from .models import Reservation, Trajet, Voiture, Driver ,Payment, DriverStripeAccount
 
 class VoitureSerializer(serializers.ModelSerializer):
     car_image_id = serializers.SerializerMethodField()
@@ -94,3 +94,28 @@ class TrajetDetailSerializer(serializers.ModelSerializer):
             'user_id': driver.user_id,
             'car': car_data
         }
+
+
+class DriverStripeAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DriverStripeAccount
+        fields = ['id', 'stripe_account_id', 'is_verified', 'verification_status', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = [
+            'id', 'passenger_id', 'driver_id', 'trajet', 'amount', 
+            'platform_fee', 'currency', 'status', 'created_at'
+        ]
+        read_only_fields = ['id', 'status', 'created_at', 'stripe_payment_intent_id']
+
+class ReservationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Reservation
+        fields = [
+            'id', 'trajet', 'passenger_id', 'nom', 'prenom', 'tel', 'adresse',
+            'payment_method', 'payment', 'status', 'created_at', 'notes'
+        ]
+        read_only_fields = ['id', 'passenger_id', 'created_at']

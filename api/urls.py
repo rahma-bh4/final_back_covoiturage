@@ -20,9 +20,16 @@ urlpatterns = [
     path('trajet/update/<int:pk>/', views.UpdateTrajetView.as_view(), name='update_trajet'),
     path('trajet/<int:pk>/', views.UpdateTrajetView.as_view(), name='get_trajet'),
     path('trajets/<int:trajet_id>/', views.trajet_detail, name='trajet_detail'),
-    path('reservations/creer/', views.creer_reservation, name='creer_reservation'),
-
-
+    path('driver-stripe-onboarding/', views.driver_stripe_onboarding, name='driver-stripe-onboarding'),
+    path('check-stripe-account-status/', views.check_stripe_account_status, name='check-stripe-account-status'),
+    
+    # Payment endpoints
+    path('create-payment-intent/', views.create_payment_intent, name='create-payment-intent'),
+    # path('driver-earnings/', views.driver_earnings, name='driver-earnings'),
+    # path('passenger-bookings/', views.passenger_bookings, name='passenger-bookings'),
+    
+    # Webhook
+    path('webhook/', views.webhook, name='webhook'),
 
 
 ]
