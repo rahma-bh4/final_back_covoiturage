@@ -23,8 +23,8 @@ urlpatterns = [
     
     # Payment endpoints
     path('create-payment-intent/', views.create_payment_intent, name='create-payment-intent'),
-    path('driver-earnings/', views.driver_earnings, name='driver-earnings'),
-    path('passenger-bookings/', views.passenger_bookings, name='passenger-bookings'),
+    # path('driver-earnings/', views.driver_earnings, name='driver-earnings'),
+    # path('passenger-bookings/', views.passenger_bookings, name='passenger-bookings'),
     
     # Webhook
     path('webhook/', views.webhook, name='webhook'),
