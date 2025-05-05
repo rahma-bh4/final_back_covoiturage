@@ -12,7 +12,6 @@ from django.db import models
 #         return self.clerk_user_id
     
 
-
     
 class Voiture(models.Model):
     id_voiture = models.AutoField(primary_key=True)
