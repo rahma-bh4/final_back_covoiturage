@@ -31,5 +31,9 @@ urlpatterns = [
     # Webhook
     path('webhook/', views.webhook, name='webhook'),
 
+ path('trajets/<int:trajet_id>/', views.trajet_detail, name='trajet_detail'),
+    path('reservations/creer/', views.creer_reservation, name='creer_reservation'),
+
+
 
 ]
