@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 # class User(models.Model):
 #     clerk_user_id = models.CharField(max_length=255, unique=True)
@@ -10,6 +11,7 @@ from django.db import models
 #     def __str__(self):
 #         return self.clerk_user_id
     
+
 
     
 class Voiture(models.Model):
@@ -56,3 +58,65 @@ class Driver(models.Model):
 
     
 # Create your models here.
+
+
+class Payment(models.Model):
+    PAYMENT_STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user_id = models.CharField(max_length=255)  # Supabase or external user ID
+    trajet = models.ForeignKey(Trajet, on_delete=models.CASCADE, related_name='payments')
+    amount = models.IntegerField()  # Amount in millimes
+    currency = models.CharField(max_length=3, default='tnd')
+    stripe_payment_intent_id = models.CharField(max_length=255)
+    status = models.CharField(max_length=10, choices=PAYMENT_STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user_id} - {self.amount / 1000} {self.currency.upper()} for Trajet {self.trajet.id}"
+
+class Reservation(models.Model):
+    RESERVATION_STATUS = (
+        ('pending', 'En attente'),
+        ('accepted', 'Acceptée'),
+        ('rejected', 'Refusée'),
+        ('cancelled', 'Annulée'),
+        ('completed', 'Terminée'),
+    )
+
+    PAYMENT_METHOD = (
+        ('cash', 'Espèces'),
+        ('online', 'Paiement en ligne'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    trajet = models.ForeignKey(Trajet, on_delete=models.CASCADE, related_name='reservations')
+    passenger_id = models.CharField(max_length=255)  # Supabase user ID of passenger
+
+    # Infos passager
+    nom = models.CharField(max_length=100)
+    prenom = models.CharField(max_length=100)
+    tel = models.CharField(max_length=20)
+    adresse = models.CharField(max_length=255, blank=True, null=True)
+
+    # Paiement
+    payment_method = models.CharField(max_length=10, choices=PAYMENT_METHOD, default='cash')
+    payment = models.ForeignKey(Payment, on_delete=models.SET_NULL, null=True, blank=True, related_name='reservations')
+
+    status = models.CharField(max_length=10, choices=RESERVATION_STATUS, default='pending')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    notes = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return f"Reservation {self.id} - {self.nom} {self.prenom} for Trajet {self.trajet.id}"
+
+    class Meta:
+        ordering = ['-created_at']
+        unique_together = ['trajet', 'passenger_id']

@@ -3,6 +3,8 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
 
+
+
 router = DefaultRouter()
 router.register(r'voitures', views.VoitureViewSet)
 router.register(r'drivers', views.DriverViewSet)
@@ -17,7 +19,10 @@ urlpatterns = [
     path('delete-trajet/<int:pk>/', views.DeleteTrajetView.as_view(), name='delete-trajet'),
     path('trajet/update/<int:pk>/', views.UpdateTrajetView.as_view(), name='update_trajet'),
     path('trajet/<int:pk>/', views.UpdateTrajetView.as_view(), name='get_trajet'),
-    path('trajets/<int:trajet_id>/', views.trajet_detail, name='trajet_detail')
+    path('trajets/<int:trajet_id>/', views.trajet_detail, name='trajet_detail'),
+    path('reservations/creer/', views.creer_reservation, name='creer_reservation'),
+
+
 
 
 ]
