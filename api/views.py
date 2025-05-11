@@ -1,5 +1,8 @@
 import time
+from django.db.models import Count, Sum, Avg, F, ExpressionWrapper, fields
 from rest_framework import status, viewsets
+from django.db.models.functions import TruncMonth
+from datetime import timedelta
 from rest_framework.decorators import api_view, parser_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -885,3 +888,256 @@ class ReservationHistoryView(APIView):
         reservations = Reservation.objects.filter(passenger_id=user.id).order_by('-created_at')
         serializer = ReservationHistorySerializer(reservations, many=True)
         return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def driver_stats(request):
+    """
+    Get comprehensive statistics for a driver
+    """
+    user_id = request.user.id
+    current_time = timezone.now()
+    
+    try:
+        # Get the driver
+        driver = Driver.objects.get(user_id=user_id)
+    except Driver.DoesNotExist:
+        return Response(
+            {"error": "You are not registered as a driver"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Base query for all trips by this driver
+    all_trips = Trajet.objects.filter(owner_id=driver)
+    
+    # Calculate basic statistics
+    total_trips = all_trips.count()
+    completed_trips = all_trips.filter(status='completed').count()
+    active_trips = all_trips.filter(status='active', departure_date__gt=current_time).count()
+    ongoing_trips = all_trips.filter(
+        status='active',
+        departure_date__lt=current_time,
+        arrival_date__gt=current_time
+    ).count()
+    
+    # Calculate earnings from payments
+    total_earnings = Payment.objects.filter(
+        driver_id=user_id,
+        status='completed'
+    ).aggregate(
+        total=Sum(ExpressionWrapper(
+            F('amount') - F('platform_fee'),
+            output_field=fields.IntegerField()
+        ))
+    )['total'] or 0
+    
+    # Convert from millimes to TND
+    total_earnings_tnd = total_earnings / 1000
+    
+    # Get passenger count
+    reservations = Reservation.objects.filter(
+        trajet__owner_id=driver
+    )
+    total_passengers = reservations.count()
+    
+    # Calculate average rating (if you have a rating model)
+    # For demonstration, we'll use a fixed value since ratings aren't implemented yet
+    average_rating = 4.7
+    
+    # Monthly trips data (past 12 months)
+    twelve_months_ago = current_time - timedelta(days=365)
+    monthly_trips = (
+        all_trips
+        .filter(departure_date__gte=twelve_months_ago)
+        .annotate(month=TruncMonth('departure_date'))
+        .values('month')
+        .annotate(count=Count('id'))
+        .order_by('month')
+    )
+    
+    # Format monthly data
+    formatted_monthly_trips = []
+    for month_data in monthly_trips:
+        month_name = month_data['month'].strftime('%b')
+        formatted_monthly_trips.append({
+            'month': month_name,
+            'trips': month_data['count']
+        })
+    
+    # Calculate monthly earnings
+    monthly_earnings = []
+    for month_data in monthly_trips:
+        month_date = month_data['month']
+        month_name = month_date.strftime('%b')
+        
+        # Get earnings for this month
+        month_earnings = Payment.objects.filter(
+            driver_id=user_id,
+            status='completed',
+            created_at__year=month_date.year,
+            created_at__month=month_date.month
+        ).aggregate(
+            total=Sum(ExpressionWrapper(
+                F('amount') - F('platform_fee'),
+                output_field=fields.IntegerField()
+            ))
+        )['total'] or 0
+        
+        monthly_earnings.append({
+            'month': month_name,
+            'amount': month_earnings / 1000  # Convert to TND
+        })
+    
+    # Top destinations
+    top_destinations = (
+        all_trips
+        .values('arrival')
+        .annotate(count=Count('id'))
+        .order_by('-count')
+        [:5]
+    )
+    
+    # Format destinations data
+    formatted_destinations = []
+    for dest in top_destinations:
+        formatted_destinations.append({
+            'city': dest['arrival'],
+            'count': dest['count']
+        })
+    
+    # Vehicle information
+    vehicle = Voiture.objects.filter(id_voiture=driver.voiture.id_voiture).first()
+    vehicle_info = {
+        'id': vehicle.id_voiture,
+        'model': vehicle.marque,
+        'licensePlate': vehicle.matricule,
+        'image': vehicle.image.url if vehicle.image else None
+    } if vehicle else None
+    
+    # Compile all statistics
+    stats = {
+        'totalTrips': total_trips,
+        'completedTrips': completed_trips,
+        'activeTrips': active_trips,
+        'ongoingTrips': ongoing_trips,
+        'upcomingTrips': active_trips,
+        'totalPassengers': total_passengers,
+        'totalEarnings': total_earnings_tnd,
+        'averageRating': average_rating,
+        'monthlyTrips': formatted_monthly_trips,
+        'monthlyEarnings': monthly_earnings,
+        'topDestinations': formatted_destinations,
+        'vehicle': vehicle_info,
+        # Placeholder for ratings distribution
+        'ratings': [
+            {'rating': 5, 'count': int(total_passengers * 0.62)},
+            {'rating': 4, 'count': int(total_passengers * 0.28)},
+            {'rating': 3, 'count': int(total_passengers * 0.06)},
+            {'rating': 2, 'count': int(total_passengers * 0.03)},
+            {'rating': 1, 'count': int(total_passengers * 0.01)},
+        ]
+    }
+    
+    return Response(stats)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def driver_reservations(request):
+    """
+    Get all reservations for trips created by this driver
+    """
+    user_id = request.user.id
+    
+    try:
+        # Get the driver
+        driver = Driver.objects.get(user_id=user_id)
+    except Driver.DoesNotExist:
+        return Response(
+            {"error": "You are not registered as a driver"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Get reservations for this driver's trips
+    reservations = Reservation.objects.filter(
+        trajet__owner_id=driver
+    ).select_related('trajet', 'payment').order_by('-created_at')
+    
+    # Format reservation data
+    formatted_reservations = []
+    for res in reservations:
+        formatted_reservations.append({
+            'id': str(res.id),
+            'passenger': {
+                'id': res.passenger_id,
+                'name': f"{res.prenom} {res.nom}",
+                'phone': res.tel
+            },
+            'trip': {
+                'id': res.trajet.id,
+                'departure': res.trajet.departure,
+                'arrival': res.trajet.arrival,
+                'departure_date': res.trajet.departure_date,
+                'status': res.trajet.status
+            },
+            'status': res.status,
+            'payment_method': res.payment_method,
+            'payment_status': res.payment.status if res.payment else None,
+            'created_at': res.created_at
+        })
+    
+    return Response(formatted_reservations)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def driver_earnings(request):
+    """
+    Get earnings details for a driver
+    """
+    user_id = request.user.id
+    
+    try:
+        # Get the driver
+        driver = Driver.objects.get(user_id=user_id)
+    except Driver.DoesNotExist:
+        return Response(
+            {"error": "You are not registered as a driver"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Get completed payments for this driver
+    payments = Payment.objects.filter(
+        driver_id=user_id,
+        status='completed'
+    ).select_related('trajet').order_by('-created_at')
+    
+    # Calculate total earnings
+    total_earnings = sum([(payment.amount - payment.platform_fee) for payment in payments]) / 1000
+    
+    # Format payments data
+    formatted_payments = []
+    for payment in payments:
+        net_amount = (payment.amount - payment.platform_fee) / 1000  # Convert to TND
+        formatted_payments.append({
+            'id': str(payment.id),
+            'date': payment.created_at,
+            'passenger_id': payment.passenger_id,
+            'trip': {
+                'id': payment.trajet.id,
+                'departure': payment.trajet.departure,
+                'arrival': payment.trajet.arrival,
+                'departure_date': payment.trajet.departure_date
+            },
+            'amount': payment.amount / 1000,  # Convert to TND
+            'platform_fee': payment.platform_fee / 1000,  # Convert to TND
+            'net_amount': net_amount,
+            'currency': payment.currency.upper()
+        })
+    
+    # Compile earnings data
+    earnings_data = {
+        'total': total_earnings,
+        'transactions': formatted_payments
+    }
+    
+    return Response(earnings_data)

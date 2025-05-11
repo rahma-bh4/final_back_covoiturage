@@ -34,7 +34,10 @@ urlpatterns = [
  path('trajets/<int:trajet_id>/', views.trajet_detail, name='trajet_detail'),
     path('reservations/creer/', views.creer_reservation, name='creer_reservation'),
     path('reservations/history/', views.ReservationHistoryView.as_view(), name='reservation-history'),
-
+    path('driver-stats/', views.driver_stats, name='driver-stats'),
+    path('driver-reservations/', views.driver_reservations, name='driver-reservations'),
+    path('driver-earnings/', views.driver_earnings, name='driver-earnings'),
+   
 
 
 ]
