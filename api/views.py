@@ -875,3 +875,13 @@ class ReservationHistoryView(generics.ListAPIView):
     def get_queryset(self):
         # Assuming passenger_id is saved as the Supabase user ID (string) in Reservation model
         return Reservation.objects.filter(passenger_id=self.request.user.id).order_by('-created_at')
+    
+
+class ReservationHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [SupabaseJWTAuthentication]
+    def get(self, request):
+        user = request.user
+        reservations = Reservation.objects.filter(passenger_id=user.id).order_by('-created_at')
+        serializer = ReservationHistorySerializer(reservations, many=True)
+        return Response(serializer.data)
