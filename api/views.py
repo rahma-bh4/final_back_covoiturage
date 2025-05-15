@@ -629,9 +629,9 @@ def handle_payment_success(payment_intent):
         
         # Decrease available seats
         trajet = payment.trajet
-        if trajet.nb_places > 0:
-            trajet.nb_places -= 1
-            trajet.save()
+        # if trajet.nb_places > 0:
+        #     trajet.nb_places -= 1
+        #     trajet.save()
             
     except Payment.DoesNotExist:
         # Log this error for investigation
@@ -776,28 +776,40 @@ import json
 from .models import Trajet, Payment, Reservation
 
 @csrf_exempt
-@require_POST
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def creer_reservation(request):
     try:
-        # Parse JSON data from request body
-        data = json.loads(request.body)
+        # Get user ID from authenticated request
+        user_id = request.user.id
+        
+        # Parse data - either from request.body (JSON) or request.data (parsed by DRF)
+        if hasattr(request, 'data') and request.data:
+            data = request.data
+        else:
+            data = json.loads(request.body)
         
         # Validate required fields
-        required_fields = ['trajet_id', 'passenger_id', 'nom', 'prenom', 'tel']
+        required_fields = ['trajet_id', 'nom', 'prenom', 'tel']
         for field in required_fields:
             if not data.get(field):
-                return JsonResponse({
-                    'error': f'Le champ {field} est requis'
-                }, status=400)
+                return Response({
+                    'error': f'Field {field} is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
 
         # Get and validate trajet
-        trajet = get_object_or_404(Trajet, id=data.get('trajet_id'))
+        try:
+            trajet = Trajet.objects.get(id=data.get('trajet_id'))
+        except Trajet.DoesNotExist:
+            return Response({
+                'error': 'Trip not found'
+            }, status=status.HTTP_404_NOT_FOUND)
 
         # Check if there are available seats
         if trajet.nb_places <= 0:
-            return JsonResponse({
-                'error': 'Aucune place disponible pour ce trajet'
-            }, status=400)
+            return Response({
+                'error': 'No seats available for this trip'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         # Get optional fields with defaults
         adresse = data.get('adresse', '')
@@ -806,35 +818,32 @@ def creer_reservation(request):
 
         # Validate payment method
         if payment_method not in ['cash', 'online']:
-            return JsonResponse({
-                'error': 'Méthode de paiement invalide'
-            }, status=400)
+            return Response({
+                'error': 'Invalid payment method'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         # Handle payment if provided
         payment = None
         if payment_method == 'online':
             payment_id = data.get('payment_id')
-            if not payment_id:
-                return JsonResponse({
-                    'error': 'ID de paiement requis pour le paiement en ligne'
-                }, status=400)
-            try:
-                payment = Payment.objects.get(id=payment_id)
-            except Payment.DoesNotExist:
-                return JsonResponse({
-                    'error': 'Paiement non trouvé'
-                }, status=404)
+            if payment_id:
+                try:
+                    payment = Payment.objects.get(id=payment_id)
+                except Payment.DoesNotExist:
+                    return Response({
+                        'error': 'Payment not found'
+                    }, status=status.HTTP_404_NOT_FOUND)
 
         # Check if reservation already exists for this user and trajet
-        if Reservation.objects.filter(trajet=trajet, passenger_id=data.get('passenger_id')).exists():
-            return JsonResponse({
-                'error': 'Vous avez déjà une réservation pour ce trajet'
-            }, status=400)
+        if Reservation.objects.filter(trajet=trajet, passenger_id=user_id).exists():
+            return Response({
+                'error': 'You already have a reservation for this trip'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         # Create reservation
         reservation = Reservation.objects.create(
             trajet=trajet,
-            passenger_id=data.get('passenger_id'),
+            passenger_id=user_id,
             nom=data.get('nom'),
             prenom=data.get('prenom'),
             tel=data.get('tel'),
@@ -849,46 +858,28 @@ def creer_reservation(request):
         trajet.nb_places -= 1
         trajet.save()
 
-        return JsonResponse({
-            'message': 'Réservation créée avec succès',
+        return Response({
+            'message': 'Reservation created successfully',
             'reservation_id': str(reservation.id),
             'reservation': {
                 'id': str(reservation.id),
                 'trajet_id': trajet.id,
-                'passenger_id': reservation.passenger_id,
+                'passenger_id': user_id,
                 'nom': reservation.nom,
                 'prenom': reservation.prenom,
                 'status': reservation.status,
                 'created_at': reservation.created_at.isoformat()
             }
-        }, status=201)
+        }, status=status.HTTP_201_CREATED)
 
     except json.JSONDecodeError:
-        return JsonResponse({
-            'error': 'Format JSON invalide'
-        }, status=400)
+        return Response({
+            'error': 'Invalid JSON format'
+        }, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        return JsonResponse({
-            'error': f'Erreur lors de la création de la réservation: {str(e)}'
-        }, status=500)
-class ReservationHistoryView(generics.ListAPIView):
-    serializer_class = ReservationHistorySerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        # Assuming passenger_id is saved as the Supabase user ID (string) in Reservation model
-        return Reservation.objects.filter(passenger_id=self.request.user.id).order_by('-created_at')
-    
-
-class ReservationHistoryView(APIView):
-    permission_classes = [IsAuthenticated]
-    authentication_classes = [SupabaseJWTAuthentication]
-    def get(self, request):
-        user = request.user
-        reservations = Reservation.objects.filter(passenger_id=user.id).order_by('-created_at')
-        serializer = ReservationHistorySerializer(reservations, many=True)
-        return Response(serializer.data)
-
+        return Response({
+            'error': f'Error creating reservation: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -1141,3 +1132,97 @@ def driver_earnings(request):
     }
     
     return Response(earnings_data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_reservation_status(request):
+    """
+    Update the status of a reservation (accept or reject)
+    Only the driver of the associated trip can update the status
+    """
+    try:
+        user_id = request.user.id
+        data = request.data
+        
+        # Validate required fields
+        if not data.get('reservation_id') or not data.get('status'):
+            return Response({
+                'error': 'Reservation ID and status are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate status value
+        new_status = data.get('status')
+        if new_status not in ['accepted', 'rejected']:
+            return Response({
+                'error': 'Status must be either "accepted" or "rejected"'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get the reservation
+        try:
+            reservation = Reservation.objects.get(id=data.get('reservation_id'))
+        except Reservation.DoesNotExist:
+            return Response({
+                'error': 'Reservation not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if user is the driver of this trip
+        try:
+            driver = Driver.objects.get(user_id=user_id)
+        except Driver.DoesNotExist:
+            return Response({
+                'error': 'You are not registered as a driver'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Check if the trip belongs to this driver
+        if reservation.trajet.owner_id.id != driver.id:
+            return Response({
+                'error': 'You do not have permission to update this reservation'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Only update if current status is 'pending'
+        if reservation.status != 'pending':
+            return Response({
+                'error': f'Cannot update reservation with status "{reservation.status}"'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Handle seat count based on status change
+        trajet = reservation.trajet
+        
+        # Update reservation status
+        reservation.status = new_status
+        reservation.save()
+        
+        # If rejected, increase available seats
+        if new_status == 'rejected':
+            trajet.nb_places += 1
+            trajet.save()
+            message = 'Reservation rejected successfully'
+        else:
+            message = 'Reservation accepted successfully'
+        
+        return Response({
+            'message': message,
+            'reservation': {
+                'id': str(reservation.id),
+                'status': reservation.status,
+                'trajet': {
+                    'id': trajet.id,
+                    'nb_places': trajet.nb_places
+                }
+            }
+        })
+        
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+class ReservationHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [SupabaseJWTAuthentication]
+    def get(self, request):
+        user = request.user
+        reservations = Reservation.objects.filter(passenger_id=user.id).order_by('-created_at')
+        serializer = ReservationHistorySerializer(reservations, many=True)
+        return Response(serializer.data)

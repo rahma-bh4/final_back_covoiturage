@@ -37,6 +37,7 @@ urlpatterns = [
     path('driver-stats/', views.driver_stats, name='driver-stats'),
     path('driver-reservations/', views.driver_reservations, name='driver-reservations'),
     path('driver-earnings/', views.driver_earnings, name='driver-earnings'),
+    path('update-status/', views.update_reservation_status, name='update-reservation-status'),
    
 
 
