@@ -27,18 +27,23 @@ class DriverSerializer(serializers.ModelSerializer):
         fields = ['id', 'user_id', 'voiture', 'voiture_id']
         read_only_fields = ['id']
 
+# api/serializers.py - Update TrajetSerializer to include available_seats
+
 class TrajetSerializer(serializers.ModelSerializer):
     voiture_details = VoitureSerializer(source='voiture', read_only=True)
+    available_seats = serializers.SerializerMethodField()
     
     class Meta:
         model = Trajet
         fields = [
             'id', 'name', 'owner_id', 'voiture', 'voiture_details', 'phonenumber', 'price', 
             'departure', 'arrival', 'departure_date', 'arrival_date',
-            'nb_places', 'created_at', 'status'
+            'nb_places', 'reserved_seats', 'available_seats', 'created_at', 'status'
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'created_at', 'reserved_seats']
     
+    def get_available_seats(self, obj):
+        return max(0, obj.nb_places - obj.reserved_seats)  
 class TrajetDetailSerializer(serializers.ModelSerializer):
     """
     Serializer for detailed trip information, including car and driver details

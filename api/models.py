@@ -44,6 +44,7 @@ class Trajet(models.Model):
     voiture = models.ForeignKey(Voiture, on_delete=models.CASCADE)  # Clé étrangère vers la table Voiture
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
+    reserved_seats = models.IntegerField(default=0) 
     def __str__(self):
         return f"{self.id} - {self.name}: {self.departure} -> {self.arrival} ({self.departure_date})"
 
@@ -79,8 +80,8 @@ class Payment(models.Model):
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     passenger_id = models.CharField(max_length=255)  # Supabase user ID of passenger
-    driver_id = models.CharField(max_length=255)  # Supabase user ID of driver
-    driver_stripe_account_id = models.CharField(max_length=255)  # Stripe Connect account ID
+    driver_id = models.CharField(max_length=255,null=True,blank=True)  # Supabase user ID of driver
+    driver_stripe_account_id = models.CharField(max_length=255,null=True,blank=True)  # Stripe Connect account ID
     trajet = models.ForeignKey('Trajet', on_delete=models.CASCADE, related_name='payments')
     amount = models.IntegerField()  # Amount in millimes (1 TND = 1000 millimes)
     platform_fee = models.IntegerField(default=0)  # Platform fee in millimes

@@ -775,6 +775,10 @@ from django.shortcuts import get_object_or_404
 import json
 from .models import Trajet, Payment, Reservation
 
+# api/views.py - Update reservation creation view
+
+# api/views.py - Update reservation creation view
+
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -805,8 +809,8 @@ def creer_reservation(request):
                 'error': 'Trip not found'
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # Check if there are available seats
-        if trajet.nb_places <= 0:
+        # Check if there are available seats using property method
+        if trajet.available_seats <= 0:
             return Response({
                 'error': 'No seats available for this trip'
             }, status=status.HTTP_400_BAD_REQUEST)
@@ -854,8 +858,8 @@ def creer_reservation(request):
             status='pending'
         )
 
-        # Update available seats
-        trajet.nb_places -= 1
+        # Update reserved seats counter
+        trajet.reserved_seats += 1
         trajet.save()
 
         return Response({
@@ -880,7 +884,7 @@ def creer_reservation(request):
         return Response({
             'error': f'Error creating reservation: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+    
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def driver_stats(request):
@@ -1133,6 +1137,7 @@ def driver_earnings(request):
     
     return Response(earnings_data)
 
+# api/views.py - Update the update_reservation_status function
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -1193,12 +1198,13 @@ def update_reservation_status(request):
         reservation.status = new_status
         reservation.save()
         
-        # If rejected, increase available seats
+        # If rejected, decrease reserved seats counter
         if new_status == 'rejected':
-            trajet.nb_places += 1
+            trajet.reserved_seats = max(0, trajet.reserved_seats - 1)
             trajet.save()
             message = 'Reservation rejected successfully'
         else:
+            # Keep reserved_seats as is for accepted status
             message = 'Reservation accepted successfully'
         
         return Response({
@@ -1208,8 +1214,67 @@ def update_reservation_status(request):
                 'status': reservation.status,
                 'trajet': {
                     'id': trajet.id,
-                    'nb_places': trajet.nb_places
+                    'reserved_seats': trajet.reserved_seats,
+                    'available_seats': trajet.available_seats
                 }
+            }
+        })
+        
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+# api/views.py - Add reservation cancellation endpoint
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def cancel_reservation(request):
+    """
+    Cancel a reservation - only the passenger who made the reservation can cancel it
+    """
+    try:
+        user_id = request.user.id
+        data = request.data
+        
+        # Validate input
+        if not data.get('reservation_id'):
+            return Response({
+                'error': 'Reservation ID is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get the reservation
+        try:
+            reservation = Reservation.objects.get(
+                id=data.get('reservation_id'),
+                passenger_id=user_id  # Ensure the user owns this reservation
+            )
+        except Reservation.DoesNotExist:
+            return Response({
+                'error': 'Reservation not found or not authorized'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if reservation can be cancelled
+        if reservation.status not in ['pending', 'accepted']:
+            return Response({
+                'error': f'Cannot cancel reservation with status "{reservation.status}"'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update reservation status
+        reservation.status = 'cancelled'
+        reservation.save()
+        
+        # Update reserved seats counter
+        trajet = reservation.trajet
+        trajet.reserved_seats = max(0, trajet.reserved_seats - 1)
+        trajet.save()
+        
+        return Response({
+            'message': 'Reservation cancelled successfully',
+            'trajet': {
+                'id': trajet.id,
+                'reserved_seats': trajet.reserved_seats,
+                'available_seats': trajet.available_seats
             }
         })
         
