@@ -510,17 +510,60 @@ def check_stripe_account_status(request):
 def create_payment_intent(request):
     try:
         data = request.data
+        print("Received payment data:", data)
         trajet_id = data.get('trajet_id')
         
         # Get the Trajet
         try:
             trajet = Trajet.objects.get(id=trajet_id)
+            print(f"Found trajet with ID {trajet_id}, owner_id: {trajet.owner_id.id if trajet.owner_id else 'None'}")
         except Trajet.DoesNotExist:
+            print(f"Trajet with ID {trajet_id} not found")
             return Response(
                 {"error": "Trip not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        # Check if seats are available
+        if trajet.nb_places <= 0:
+            print(f"No seats available: nb_places={trajet.nb_places}")
+            return Response(
+                {"error": "No seats available for this trip"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Get the driver
+        driver = trajet.owner_id
+        if not driver:
+            print("No driver found for this trajet")
+            return Response(
+                {"error": "This trip has no assigned driver"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        print(f"Driver ID: {driver.id}, User ID: {driver.user_id}")
+        
+        # First, check if the driver has ANY Stripe account (verified or not)
+        any_account = DriverStripeAccount.objects.filter(driver=driver).first()
+        if any_account:
+            print(f"Found driver Stripe account: {any_account.stripe_account_id}, verified: {any_account.is_verified}")
+            if not any_account.is_verified:
+                print("Driver account exists but is NOT verified")
+        else:
+            print("No Stripe account found for this driver")
+        
+        # Check if driver has a VERIFIED Stripe account
+        try:
+            driver_stripe_account = DriverStripeAccount.objects.get(driver=driver, is_verified=True)
+            print(f"Found verified Stripe account: {driver_stripe_account.stripe_account_id}")
+        except DriverStripeAccount.DoesNotExist:
+            print("No verified Stripe account found")
+            return Response(
+                {"error": "The driver has not set up their payment account yet"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Rest of the function continues as before...
         # Check if seats are available
         if trajet.nb_places <= 0:
             return Response(
@@ -809,8 +852,9 @@ def creer_reservation(request):
                 'error': 'Trip not found'
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # Check if there are available seats using property method
-        if trajet.available_seats <= 0:
+        # Check if there are available seats by calculating directly
+        available_seats = max(0, trajet.nb_places - trajet.reserved_seats)
+        if available_seats <= 0:
             return Response({
                 'error': 'No seats available for this trip'
             }, status=status.HTTP_400_BAD_REQUEST)
@@ -883,8 +927,7 @@ def creer_reservation(request):
     except Exception as e:
         return Response({
             'error': f'Error creating reservation: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)   
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def driver_stats(request):
@@ -1207,6 +1250,9 @@ def update_reservation_status(request):
             # Keep reserved_seats as is for accepted status
             message = 'Reservation accepted successfully'
         
+        # Calculate available seats directly instead of using a non-existent attribute
+        available_seats = max(0, trajet.nb_places - trajet.reserved_seats)
+        
         return Response({
             'message': message,
             'reservation': {
@@ -1215,11 +1261,15 @@ def update_reservation_status(request):
                 'trajet': {
                     'id': trajet.id,
                     'reserved_seats': trajet.reserved_seats,
-                    'available_seats': trajet.available_seats
+                    'available_seats': available_seats  # Use calculated value here
                 }
             }
         })
         
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)     
     except Exception as e:
         return Response({
             'error': str(e)
@@ -1291,3 +1341,147 @@ class ReservationHistoryView(APIView):
         reservations = Reservation.objects.filter(passenger_id=user.id).order_by('-created_at')
         serializer = ReservationHistorySerializer(reservations, many=True)
         return Response(serializer.data)
+
+
+@api_view(['PUT'])
+@parser_classes([MultiPartParser, FormParser])
+@permission_classes([IsAuthenticated])
+def update_driver_vehicle(request):
+    """
+    Update a driver's vehicle information
+    """
+    user_id = request.user.id
+    
+    print(f"update_driver_vehicle called for user_id: {user_id}")
+    print(f"Request data: {request.data}")
+    
+    try:
+        # Get the driver and associated vehicle
+        try:
+            driver = Driver.objects.get(user_id=user_id)
+            print(f"Found driver with id: {driver.id}")
+        except Driver.DoesNotExist:
+            print(f"No driver found for user_id: {user_id}")
+            return Response({
+                'error': 'You are not registered as a driver'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get the vehicle
+        try:
+            voiture = driver.voiture
+            print(f"Found vehicle: {voiture.id_voiture} - {voiture.marque}")
+        except Exception as e:
+            print(f"Error getting vehicle for driver: {str(e)}")
+            return Response({
+                'error': f'Error getting vehicle: {str(e)}'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Update the vehicle with provided data
+        if 'marque' in request.data:
+            voiture.marque = request.data['marque']
+            print(f"Updated marque to: {voiture.marque}")
+            
+        if 'matricule' in request.data:
+            voiture.matricule = request.data['matricule']
+            print(f"Updated matricule to: {voiture.matricule}")
+            
+        if 'image' in request.FILES:
+            print(f"New image provided, filename: {request.FILES['image'].name}")
+            # If there was an old image, delete it if needed
+            # (Django will handle replacing the file)
+            voiture.image = request.FILES['image']
+        
+        # Save changes
+        voiture.save()
+        print(f"Vehicle {voiture.id_voiture} updated successfully")
+        
+        # Serialize and return updated vehicle
+        serializer = VoitureSerializer(voiture)
+        return Response({
+            'message': 'Vehicle updated successfully',
+            'vehicle': serializer.data
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        print(f"Unexpected error in update_driver_vehicle: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'error': f'Error updating vehicle: {str(e)}'
+        }, status=status.HTTP_400_BAD_REQUEST)  
+
+    
+class VoitureViewSet(viewsets.ModelViewSet):
+    queryset = Voiture.objects.all()
+    serializer_class = VoitureSerializer
+    parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [IsAuthenticated]  # Require authenticated users
+    authentication_classes = [SupabaseJWTAuthentication]
+
+    def get_queryset(self):
+        user_id = self.request.user.id  # user_id from JWT
+        
+        # Log for debugging
+        print(f"Fetching vehicles for user_id: {user_id}")
+        
+        # First, check if this user is a driver
+        try:
+            driver = Driver.objects.get(user_id=user_id)
+            print(f"Found driver with id: {driver.id}, fetching vehicle with id: {driver.voiture.id_voiture}")
+            
+            # Return specifically this driver's vehicle
+            return Voiture.objects.filter(id_voiture=driver.voiture.id_voiture)
+        except Driver.DoesNotExist:
+            print(f"No driver found for user_id: {user_id}")
+            return Voiture.objects.none()  # Return empty queryset if not a driver
+        except Exception as e:
+            print(f"Error in VoitureViewSet.get_queryset: {str(e)}")
+            return Voiture.objects.none()
+    
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def debug_driver_vehicle(request):
+    """
+    Debug endpoint to verify driver vehicle association
+    """
+    user_id = request.user.id
+    
+    print(f"debug_driver_vehicle called for user_id: {user_id}")
+    
+    response_data = {
+        "user_id": user_id,
+        "driver_found": False,
+        "vehicle_found": False,
+        "details": {}
+    }
+    
+    try:
+        # Try to get the driver
+        try:
+            driver = Driver.objects.get(user_id=user_id)
+            response_data["driver_found"] = True
+            response_data["details"]["driver"] = {
+                "id": driver.id,
+                "user_id": driver.user_id
+            }
+            
+            # Try to get the vehicle
+            try:
+                vehicle = driver.voiture
+                response_data["vehicle_found"] = True
+                response_data["details"]["vehicle"] = {
+                    "id": vehicle.id_voiture,
+                    "marque": vehicle.marque,
+                    "matricule": vehicle.matricule,
+                    "has_image": bool(vehicle.image)
+                }
+            except Exception as e:
+                response_data["details"]["vehicle_error"] = str(e)
+                
+        except Driver.DoesNotExist:
+            response_data["details"]["driver_error"] = "Driver not found for this user"
+            
+    except Exception as e:
+        response_data["details"]["error"] = str(e)
+    
+    return Response(response_data)

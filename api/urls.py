@@ -39,7 +39,9 @@ urlpatterns = [
     path('driver-earnings/', views.driver_earnings, name='driver-earnings'),
     path('update-status/', views.update_reservation_status, name='update-reservation-status'),
     path('reservations/cancel/', views.cancel_reservation, name='cancel-reservation'),
-   
+   # Add this to api/urls.py in urlpatterns
 
+ path('update-vehicle/', views.update_driver_vehicle, name='update-driver-vehicle'),
+    path('debug-driver-vehicle/', views.debug_driver_vehicle, name='debug-driver-vehicle'),
 
 ]
