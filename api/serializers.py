@@ -125,38 +125,47 @@ class ReservationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'passenger_id', 'created_at']
     
-
 class ReservationHistorySerializer(serializers.ModelSerializer):
     trajet_depart = serializers.CharField(source='trajet.departure', read_only=True)
     trajet_arrivee = serializers.CharField(source='trajet.arrival', read_only=True)
     trajet_date_depart = serializers.DateTimeField(source='trajet.departure_date', read_only=True)
     trajet_date_arrivee = serializers.DateTimeField(source='trajet.arrival_date', read_only=True)
-    payment_status = serializers.CharField(source='payment.status', read_only=True)
-    trajet_id = serializers.ReadOnlyField(source='trajet.id')  # Using ReadOnlyField instead
+    payment_status = serializers.SerializerMethodField()
+    has_paid = serializers.SerializerMethodField()
+    trajet_id = serializers.ReadOnlyField(source='trajet.id')
     
     class Meta:
         model = Reservation
         fields = [
             'id', 'nom', 'prenom', 'tel', 'status',
-            'payment_method', 'payment_status',
+            'payment_method', 'payment_status', 'has_paid',
             'trajet_depart', 'trajet_arrivee', 
             'trajet_date_depart', 'trajet_date_arrivee',
             'trajet_id', 'created_at'
         ]
-
-# class ReservationHistorySerializer(serializers.ModelSerializer):
-#     trajet_depart = serializers.CharField(source='trajet.departure', read_only=True)
-#     trajet_arrivee = serializers.CharField(source='trajet.arrival', read_only=True)
-#     trajet_date_depart = serializers.DateTimeField(source='trajet.departure_date', read_only=True)
-#     trajet_date_arrivee = serializers.DateTimeField(source='trajet.arrival_date', read_only=True)
-#     payment_status = serializers.CharField(source='payment.status', read_only=True)
-
-#     class Meta:
-#         model = Reservation
-#         fields = [
-#             'id', 'nom', 'prenom', 'tel', 'status',
-#             'payment_method', 'payment_status',
-#             'trajet_depart', 'trajet_arrivee',
-#             'trajet_date_depart', 'trajet_date_arrivee',
-#             'created_at'
-#         ]
+    
+    def get_payment_status(self, obj):
+        """Get detailed payment status"""
+        if obj.payment_method == 'cash':
+            # For cash payments
+            if obj.status in ['accepted', 'completed']:
+                return 'to_be_paid_on_trip'
+            return 'pending_approval'
+        else:  # Online payment
+            if obj.payment is None:
+                return 'awaiting_payment'
+            return obj.payment.status
+    
+    def get_has_paid(self, obj):
+        """
+        Boolean indicating if payment is completed or confirmed
+        For cash: Always false as it's paid during the trip
+        For online: True only if payment exists and status is completed
+        """
+        if obj.payment_method == 'cash':
+            # Cash payments are handled during the trip, not in the app
+            return False
+        elif obj.payment is None:
+            return False
+        # For online payments, check if status is 'completed'
+        return obj.payment.status == 'completed'

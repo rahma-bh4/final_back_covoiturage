@@ -27,7 +27,8 @@ urlpatterns = [
     path('create-payment-intent/', views.create_payment_intent, name='create-payment-intent'),
     # path('driver-earnings/', views.driver_earnings, name='driver-earnings'),
     # path('passenger-bookings/', views.passenger_bookings, name='passenger-bookings'),
-    
+     path('debug-payment/', views.debug_payment_status, name='debug-payment-all'),
+    path('debug-payment/<uuid:payment_id>/', views.debug_payment_status, name='debug-payment-single'),
     # Webhook
     path('webhook/', views.webhook, name='webhook'),
 

@@ -505,6 +505,11 @@ def check_stripe_account_status(request):
 
 # api/views.py - Update create_payment_intent
 
+from django.db.models.functions import TruncMonth
+import stripe
+from datetime import timedelta
+
+# Update the create_payment_intent function
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_payment_intent(request):
@@ -563,26 +568,6 @@ def create_payment_intent(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
             
-        # Rest of the function continues as before...
-        # Check if seats are available
-        if trajet.nb_places <= 0:
-            return Response(
-                {"error": "No seats available for this trip"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
-        # Get the driver
-        driver = trajet.owner_id
-        
-        # Check if driver has a Stripe account
-        try:
-            driver_stripe_account = DriverStripeAccount.objects.get(driver=driver, is_verified=True)
-        except DriverStripeAccount.DoesNotExist:
-            return Response(
-                {"error": "The driver has not set up their payment account yet"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
         # Get amount from the trajet
         amount = int(float(trajet.price) * 100)  # Convert to smallest unit (cents/millimes)
         currency = 'USD'  # Tunisian Dinar
@@ -617,6 +602,19 @@ def create_payment_intent(request):
             stripe_payment_intent_id=intent.id,
         )
         
+        # Link payment to existing reservation (if any)
+        try:
+            reservation = Reservation.objects.get(
+                trajet=trajet,
+                passenger_id=request.user.id
+            )
+            print(f"Found existing reservation {reservation.id}, linking payment {payment.id}")
+            reservation.payment = payment
+            reservation.payment_method = 'online'
+            reservation.save()
+        except Reservation.DoesNotExist:
+            print(f"No reservation found for trajet {trajet.id} and passenger {request.user.id}")
+        
         return Response({
             'clientSecret': intent.client_secret,
             'paymentId': str(payment.id),
@@ -625,7 +623,10 @@ def create_payment_intent(request):
         })
     
     except Exception as e:
+        print(f"Error in create_payment_intent: {str(e)}")
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+# Update webhook handler functions
 @api_view(['POST'])
 def webhook(request):
     """
@@ -639,24 +640,31 @@ def webhook(request):
             payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
         )
         
+        print(f"Received webhook event: {event['type']}")
+        
         # Handle the event
         if event['type'] == 'payment_intent.succeeded':
             payment_intent = event['data']['object']
+            print(f"Payment succeeded: {payment_intent['id']}")
             handle_payment_success(payment_intent)
             
         elif event['type'] == 'payment_intent.payment_failed':
             payment_intent = event['data']['object']
+            print(f"Payment failed: {payment_intent['id']}")
             handle_payment_failure(payment_intent)
             
         elif event['type'] == 'account.updated':
             account = event['data']['object']
+            print(f"Account updated: {account['id']}")
             handle_account_update(account)
         
         return Response({'status': 'success'})
     
-    except stripe.error.SignatureVerificationError:
+    except stripe.error.SignatureVerificationError as e:
+        print(f"Signature verification failed: {str(e)}")
         return Response({'status': 'signature verification failed'}, status=400)
     except Exception as e:
+        print(f"Webhook error: {str(e)}")
         return Response({'status': 'error', 'message': str(e)}, status=400)
 
 def handle_payment_success(payment_intent):
@@ -665,28 +673,49 @@ def handle_payment_success(payment_intent):
     """
     try:
         payment = Payment.objects.get(stripe_payment_intent_id=payment_intent['id'])
+        print(f"Found payment: {payment.id} for intent: {payment_intent['id']}")
         
         # Update payment status
+        old_status = payment.status
         payment.status = 'completed'
         payment.save()
+        print(f"Updated payment status from {old_status} to completed")
         
-        # Decrease available seats
+        # Update all reservations linked to this payment
+        reservations = Reservation.objects.filter(payment=payment)
+        print(f"Found {reservations.count()} reservations linked to this payment")
+        
+        for reservation in reservations:
+            print(f"Updating reservation {reservation.id} - payment completed")
+            # Reservation status remains as is - might be pending, accepted, etc.
+            reservation.save()
+            
+        # Decrease available seats if needed
         trajet = payment.trajet
-        # if trajet.nb_places > 0:
-        #     trajet.nb_places -= 1
-        #     trajet.save()
+        print(f"Trip info: nb_places={trajet.nb_places}, reserved_seats={trajet.reserved_seats}")
+        # Seat management is handled in reservation creation
             
     except Payment.DoesNotExist:
         # Log this error for investigation
         print(f"Payment not found for intent: {payment_intent['id']}")
+
 def handle_payment_failure(payment_intent):
     """
     Update payment status when payment fails
     """
     try:
         payment = Payment.objects.get(stripe_payment_intent_id=payment_intent['id'])
+        print(f"Found payment: {payment.id} for failed intent: {payment_intent['id']}")
+        
+        old_status = payment.status
         payment.status = 'failed'
         payment.save()
+        print(f"Updated payment status from {old_status} to failed")
+        
+        # Optionally update reservations
+        reservations = Reservation.objects.filter(payment=payment)
+        print(f"Found {reservations.count()} reservations linked to this payment")
+        
     except Payment.DoesNotExist:
         # Log this error for investigation
         print(f"Payment not found for intent: {payment_intent['id']}")
@@ -697,17 +726,67 @@ def handle_account_update(account):
     """
     try:
         stripe_account = DriverStripeAccount.objects.get(stripe_account_id=account['id'])
+        print(f"Found Stripe account: {stripe_account.id} for account: {account['id']}")
         
         # Update verification status
         is_verified = account['charges_enabled'] and account['payouts_enabled']
+        old_verified = stripe_account.is_verified
         stripe_account.is_verified = is_verified
         stripe_account.verification_status = "verified" if is_verified else "pending"
         stripe_account.save()
+        
+        print(f"Updated stripe account verification from {old_verified} to {is_verified}")
         
     except DriverStripeAccount.DoesNotExist:
         # Log this error for investigation
         print(f"Driver Stripe account not found: {account['id']}")
 
+# Add a debug endpoint for payments
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def debug_payment_status(request, payment_id=None):
+    """Debug endpoint to check payment status"""
+    try:
+        if payment_id:
+            # Get specific payment
+            payment = Payment.objects.get(id=payment_id)
+            
+            # Find reservations linked to this payment
+            reservations = Reservation.objects.filter(payment=payment)
+            
+            return Response({
+                'payment_id': str(payment.id),
+                'stripe_id': payment.stripe_payment_intent_id,
+                'status': payment.status,
+                'amount': payment.amount,
+                'currency': payment.currency,
+                'created_at': payment.created_at,
+                'linked_reservations': [
+                    {
+                        'id': str(res.id),
+                        'status': res.status,
+                        'payment_method': res.payment_method
+                    } for res in reservations
+                ]
+            })
+        else:
+            # Get all payments for current user
+            payments = Payment.objects.filter(passenger_id=request.user.id)
+            
+            return Response([{
+                'payment_id': str(payment.id),
+                'stripe_id': payment.stripe_payment_intent_id, 
+                'status': payment.status,
+                'amount': payment.amount,
+                'currency': payment.currency,
+                'created_at': payment.created_at,
+                'reservation_count': Reservation.objects.filter(payment=payment).count()
+            } for payment in payments])
+            
+    except Payment.DoesNotExist:
+        return Response({'error': 'Payment not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
 
 # aviews not tested 
 
@@ -821,7 +900,6 @@ from .models import Trajet, Payment, Reservation
 # api/views.py - Update reservation creation view
 
 # api/views.py - Update reservation creation view
-
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -877,6 +955,7 @@ def creer_reservation(request):
             if payment_id:
                 try:
                     payment = Payment.objects.get(id=payment_id)
+                    print(f"Found payment {payment.id} with status {payment.status}")
                 except Payment.DoesNotExist:
                     return Response({
                         'error': 'Payment not found'
@@ -901,10 +980,25 @@ def creer_reservation(request):
             notes=notes,
             status='pending'
         )
+        
+        print(f"Created reservation {reservation.id} with payment_method={payment_method}, payment={payment}")
 
         # Update reserved seats counter
         trajet.reserved_seats += 1
         trajet.save()
+
+        # If there's an existing payment in the request for this trajet, update it
+        if payment is None and payment_method == 'online':
+            # Look for a recent payment for this trajet by this user
+            existing_payment = Payment.objects.filter(
+                trajet=trajet,
+                passenger_id=user_id
+            ).order_by('-created_at').first()
+            
+            if existing_payment:
+                print(f"Found existing payment {existing_payment.id}, linking to reservation {reservation.id}")
+                reservation.payment = existing_payment
+                reservation.save()
 
         return Response({
             'message': 'Reservation created successfully',
@@ -916,6 +1010,8 @@ def creer_reservation(request):
                 'nom': reservation.nom,
                 'prenom': reservation.prenom,
                 'status': reservation.status,
+                'payment_method': reservation.payment_method,
+                'payment_id': str(reservation.payment.id) if reservation.payment else None,
                 'created_at': reservation.created_at.isoformat()
             }
         }, status=status.HTTP_201_CREATED)
@@ -927,7 +1023,7 @@ def creer_reservation(request):
     except Exception as e:
         return Response({
             'error': f'Error creating reservation: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)   
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def driver_stats(request):
@@ -1341,8 +1437,7 @@ class ReservationHistoryView(APIView):
         reservations = Reservation.objects.filter(passenger_id=user.id).order_by('-created_at')
         serializer = ReservationHistorySerializer(reservations, many=True)
         return Response(serializer.data)
-
-
+    
 @api_view(['PUT'])
 @parser_classes([MultiPartParser, FormParser])
 @permission_classes([IsAuthenticated])
@@ -1485,3 +1580,4 @@ def debug_driver_vehicle(request):
         response_data["details"]["error"] = str(e)
     
     return Response(response_data)
+
