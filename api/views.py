@@ -1420,7 +1420,7 @@ def cancel_reservation(request):
             'trajet': {
                 'id': trajet.id,
                 'reserved_seats': trajet.reserved_seats,
-                'available_seats': trajet.available_seats
+                'available_seats': trajet.nb_places
             }
         })
         
@@ -1580,4 +1580,42 @@ def debug_driver_vehicle(request):
         response_data["details"]["error"] = str(e)
     
     return Response(response_data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def fix_reservation_payments(request):
+    """
+    Fix reservations by linking them to their corresponding payments
+    """
+    try:
+        # Find all online reservations without payment
+        reservations = Reservation.objects.filter(
+            payment_method='online',
+            payment__isnull=True
+        )
+        
+        fixed_count = 0
+        for reservation in reservations:
+            # Find a payment for this reservation
+            payment = Payment.objects.filter(
+                trajet=reservation.trajet,
+                passenger_id=reservation.passenger_id
+            ).order_by('-created_at').first()
+            
+            if payment:
+                # Link the payment to the reservation
+                reservation.payment = payment
+                reservation.save()
+                fixed_count += 1
+        
+        return Response({
+            'message': f'Fixed {fixed_count} reservations with missing payment links',
+            'total_processed': reservations.count()
+        })
+        
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

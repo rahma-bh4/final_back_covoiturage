@@ -124,7 +124,6 @@ class ReservationSerializer(serializers.ModelSerializer):
             'payment_method', 'payment', 'status', 'created_at', 'notes'
         ]
         read_only_fields = ['id', 'passenger_id', 'created_at']
-    
 class ReservationHistorySerializer(serializers.ModelSerializer):
     trajet_depart = serializers.CharField(source='trajet.departure', read_only=True)
     trajet_arrivee = serializers.CharField(source='trajet.arrival', read_only=True)
@@ -134,6 +133,10 @@ class ReservationHistorySerializer(serializers.ModelSerializer):
     has_paid = serializers.SerializerMethodField()
     trajet_id = serializers.ReadOnlyField(source='trajet.id')
     
+    # Debug fields - you can remove these after debugging
+    debug_payment_id = serializers.SerializerMethodField()
+    debug_payment_found = serializers.SerializerMethodField()
+    
     class Meta:
         model = Reservation
         fields = [
@@ -141,8 +144,28 @@ class ReservationHistorySerializer(serializers.ModelSerializer):
             'payment_method', 'payment_status', 'has_paid',
             'trajet_depart', 'trajet_arrivee', 
             'trajet_date_depart', 'trajet_date_arrivee',
-            'trajet_id', 'created_at'
+            'trajet_id', 'created_at',
+            # Debug fields
+            'debug_payment_id', 'debug_payment_found'
         ]
+    
+    def find_payment(self, obj):
+        """Find payment for this reservation, even if not directly linked"""
+        # First check if there's a directly linked payment
+        if obj.payment:
+            return obj.payment, True
+            
+        # If not, look for any payment for this trip by this passenger
+        from api.models import Payment
+        try:
+            payment = Payment.objects.filter(
+                trajet=obj.trajet,
+                passenger_id=obj.passenger_id
+            ).order_by('-created_at').first()
+            
+            return payment, False
+        except:
+            return None, False
     
     def get_payment_status(self, obj):
         """Get detailed payment status"""
@@ -152,9 +175,14 @@ class ReservationHistorySerializer(serializers.ModelSerializer):
                 return 'to_be_paid_on_trip'
             return 'pending_approval'
         else:  # Online payment
-            if obj.payment is None:
+            payment, is_linked = self.find_payment(obj)
+            if not payment:
                 return 'awaiting_payment'
-            return obj.payment.status
+            
+            # Add debug prefix for unlinked payments
+            if not is_linked:
+                return f"{payment.status}"
+            return payment.status
     
     def get_has_paid(self, obj):
         """
@@ -165,7 +193,27 @@ class ReservationHistorySerializer(serializers.ModelSerializer):
         if obj.payment_method == 'cash':
             # Cash payments are handled during the trip, not in the app
             return False
-        elif obj.payment is None:
+            
+        payment, _ = self.find_payment(obj)
+        if not payment:
             return False
+            
         # For online payments, check if status is 'completed'
-        return obj.payment.status == 'completed'
+        return payment.status == 'completed'
+    
+    # Debug methods
+    def get_debug_payment_id(self, obj):
+        """Return the payment ID for debugging"""
+        payment, _ = self.find_payment(obj)
+        if payment:
+            return str(payment.id)
+        return None
+    
+    def get_debug_payment_found(self, obj):
+        """Indicate if a payment was found through alternative lookup"""
+        payment, is_linked = self.find_payment(obj)
+        if not payment:
+            return "no_payment"
+        if is_linked:
+            return "directly_linked"
+        return "found_unlinked"

@@ -44,5 +44,8 @@ urlpatterns = [
 
  path('update-vehicle/', views.update_driver_vehicle, name='update-driver-vehicle'),
     path('debug-driver-vehicle/', views.debug_driver_vehicle, name='debug-driver-vehicle'),
+    # In api/urls.py
+path('fix-reservation-payments/', views.fix_reservation_payments, name='fix-reservation-payments'),
+
 
 ]
